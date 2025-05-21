@@ -28,12 +28,26 @@ def load_data(coverage_file, cost_file):
     
     # Cargar los costos de las antenas
     if cost_file.name.endswith('.xlsx'):
-        costs_df = pd.read_excel(cost_file)
+        costs_df = pd.read_excel(cost_file, header=0)  # Leer con encabezados
+        # Si el DataFrame tiene más columnas que filas, lo transponemos
+        if costs_df.shape[1] > costs_df.shape[0]:
+            costs_df = costs_df.T
     else:
-        costs_df = pd.read_csv(cost_file)
+        costs_df = pd.read_csv(cost_file, header=0)  # Leer con encabezados
     
-    # Extraer la columna de costos
-    costs = costs_df.iloc[:, 1].values
+    # Mostrar información de depuración
+    st.write(f"Forma de la matriz de cobertura: {coverage_matrix.shape}")
+    st.write(f"Forma del DataFrame de costos: {costs_df.shape}")
+    
+    # Extraer la columna de costos - tomar la primera columna después de los encabezados
+    costs = costs_df.iloc[1:, 0].values  # Saltar la primera fila (encabezado) y tomar la primera columna
+    
+    st.write(f"Número de costos cargados: {len(costs)}")
+    
+    # Verificar que el número de costos coincida con el número de antenas
+    if len(costs) != coverage_matrix.shape[1]:
+        st.error(f"Error: El número de costos ({len(costs)}) no coincide con el número de antenas en la matriz de cobertura ({coverage_matrix.shape[1]})")
+        st.error("Por favor, asegúrese de que el archivo de costos tenga exactamente 500 costos (uno por cada antena)")
     
     return coverage_matrix, costs
 
@@ -126,10 +140,10 @@ def solve_set_cover_with_ga(coverage_matrix, costs, pop_size=100, n_generations=
     
     return {
         'solution': best_solution,
-        'total_cost': total_cost,
-        'num_antennas_used': num_antennas_used,
-        'num_clients_covered': num_clients_covered,
-        'selected_antenna_indices': selected_antenna_indices + 1,  # +1 para índices desde 1
+        'total_cost': float(total_cost),
+        'num_antennas_used': int(num_antennas_used),
+        'num_clients_covered': int(num_clients_covered),
+        'selected_antenna_indices': [int(x + 1) for x in selected_antenna_indices],  # +1 para índices desde 1
         'log': log
     }
 
@@ -174,10 +188,10 @@ if coverage_file and cost_file:
             st.header("Resultados del Algoritmo Genético")
             
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total de antenas usadas", f"{solution_info['num_antennas_used']}/{coverage_matrix.shape[1]}")
-            col2.metric("Costo total", f"${solution_info['total_cost']:,.2f}")
-            col3.metric("Clientes cubiertos", f"{solution_info['num_clients_covered']}/{coverage_matrix.shape[0]}")
-            col4.metric("Tiempo de ejecución", f"{execution_time:.2f} segundos")
+            col1.metric("Total de antenas usadas", f"{int(solution_info['num_antennas_used'])}/{coverage_matrix.shape[1]}")
+            col2.metric("Costo total", f"${float(solution_info['total_cost']):,.2f}")
+            col3.metric("Clientes cubiertos", f"{int(solution_info['num_clients_covered'])}/{coverage_matrix.shape[0]}")
+            col4.metric("Tiempo de ejecución", f"{float(execution_time):.2f} segundos")
             
             # Gráfico de evolución del fitness
             st.subheader("Evolución del costo durante la optimización")
@@ -201,16 +215,24 @@ if coverage_file and cost_file:
             st.subheader("Antenas seleccionadas")
             
             # Crear un DataFrame con las antenas seleccionadas y sus costos
-            selected_antennas_df = pd.DataFrame({
-                'Antena': solution_info['selected_antenna_indices'],
-                'Costo': costs[solution_info['selected_antenna_indices'] - 1]
-            })
-            
-            # Ordenar por costo descendente
-            selected_antennas_df = selected_antennas_df.sort_values(by='Costo', ascending=False)
-            
-            # Mostrar las antenas seleccionadas en una tabla
-            st.dataframe(selected_antennas_df, use_container_width=True)
+            selected_indices = solution_info['selected_antenna_indices']
+            if len(selected_indices) > 0:
+                # Verificar que los índices sean válidos
+                if max(selected_indices) > len(costs):
+                    st.error(f"Error: El número de antenas en la solución ({max(selected_indices)}) es mayor que el número de costos disponibles ({len(costs)})")
+                else:
+                    selected_antennas_df = pd.DataFrame({
+                        'Antena': [int(x) for x in selected_indices],
+                        'Costo': [float(costs[i-1]) for i in selected_indices]
+                    })
+                    
+                    # Ordenar por costo descendente
+                    selected_antennas_df = selected_antennas_df.sort_values(by='Costo', ascending=False)
+                    
+                    # Mostrar las antenas seleccionadas en una tabla
+                    st.dataframe(selected_antennas_df, use_container_width=True)
+            else:
+                st.warning("No se encontraron antenas seleccionadas en la solución.")
             
             # Visualización de la proporción entre antenas usadas y no usadas
             st.subheader("Proporción de antenas utilizadas")
